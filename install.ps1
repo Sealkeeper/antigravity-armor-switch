@@ -68,10 +68,15 @@ if ($Uninstall) {
 # ------------------------------------------------------------------ 1. hook scripts + prompts
 Write-Host "[1/5] deploy hooks -> $HookDir"
 New-Item -ItemType Directory -Force -Path $HookDir, $PromptDir | Out-Null
-foreach ($n in 'pre_invocation.ps1','session_start.ps1','pre_tool_use.ps1','stop.ps1','_common.ps1','state.json','tail.txt') {
+foreach ($n in 'pre_invocation.ps1','session_start.ps1','pre_tool_use.ps1','stop.ps1','state.json') {
   $src = Join-Path $Root "hooks\$n"
   if (Test-Path $src) { Copy-Item $src $HookDir -Force }
 }
+# every tail closer, not just the generic one: profiles may ship tail.<profile>.txt
+$tails = @(Get-ChildItem (Join-Path $Root 'hooks') -Filter 'tail*.txt' -ErrorAction SilentlyContinue)
+if (-not $tails) { Write-Warning "no tail*.txt found under hooks\" }
+foreach ($t in $tails) { Copy-Item $t.FullName $HookDir -Force }
+Write-Host "      tails: $($tails.Count) 份 ($(($tails | ForEach-Object { $_.Name }) -join ', '))"
 if (Test-Path (Join-Path $Root 'hooks\override.txt')) {
   Copy-Item (Join-Path $Root 'hooks\override.txt') (Join-Path $HookDir 'override.txt') -Force
 }

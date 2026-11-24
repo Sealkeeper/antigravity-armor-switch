@@ -77,9 +77,17 @@ try {
 
   if (-not $enabled -or -not $allow) { Ask 'armor-break off: default approval' 'ask(off)' $tool $conv $cmd }
 
+  # Blacklist over the command line only. It is a guard against slips on a personal
+  # dev box, not a boundary: anything that reaches the same effect through a script
+  # file, a base64 payload, an MCP tool, or a non-shell tool call is out of scope here.
+  # See README "Guard limits".
   $danger = '(?i)(git\s+push|git\s+reset\s+--hard|rm\s+-rf|Remove-Item[^\r\n]*-Recurse|del\s+/s|rmdir\s+/s|format\s+[a-z]:|drop\s+(table|database)|truncate\s+table|shutdown|Stop-Computer|mkfs|dd\s+if=)'
+  $evasion = '(?i)(-enc(odedcommand)?\s+[A-Za-z0-9+/=]{16,}|frombase64string|\biex\s*[\(\s]|invoke-expression|\|\s*(ba)?sh\b|curl[^\r\n|]*\|\s*(ba)?sh|wget[^\r\n|]*\|\s*(ba)?sh)'
   if ($guard -and $cmd -and $cmd -match $danger) {
     Ask 'destructive command: operator confirmation required' 'ask(destructive)' $tool $conv $cmd
+  }
+  if ($guard -and $cmd -and $cmd -match $evasion) {
+    Ask 'obfuscated or piped execution: operator confirmation required' 'ask(evasion)' $tool $conv $cmd
   }
 
   Allow $tool $conv $cmd

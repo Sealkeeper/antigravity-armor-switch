@@ -176,7 +176,9 @@ if ($s.enabled -and $s.rules) {
 }
 if (-not $s.enabled) {
   if ($agArmed)      { $issues += 'AGENTS.md still armored while break is OFF' }
-  if (Test-Path $geminiPath) { $issues += 'GEMINI.md still present while break is OFF' }
+  # a plain GEMINI.md is correct when the user had their own file (restored from .orig.bak);
+  # only an armored one is a defect
+  if ((Test-Path $geminiPath) -and $gmArmed) { $issues += 'GEMINI.md still armored while break is OFF' }
   if ($ovLen -ne 0)  { $issues += "override.txt still holds $ovLen B while break is OFF" }
 }
 $restoreNote = if (-not $s.enabled -and (Test-Path $agentsOrig)) { ' (AGENTS.md 已还原为你自己的原件)' } else { '' }

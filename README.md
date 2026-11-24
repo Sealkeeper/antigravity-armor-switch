@@ -44,9 +44,9 @@ So this repo has **one writer**: `arm.ps1`. Every switch (`toggle.ps1`, `armor-t
 | Action | `enabled` | `override.txt` | `AGENTS.md` | `GEMINI.md` | `PreToolUse` |
 |---|---|---|---|---|---|
 | `-On` | true | policy text | `[ARMED]` | `[ARMED]` | `allow` |
-| `-Off` | false | kept, unused | neutral | deleted | `ask` |
+| `-Off` | false | cleared (0 B) | neutral or your original | deleted or your original | `ask` |
 | `-On -Rules off` | true | policy text | neutral | deleted | `allow` |
-| `panic.ps1` | false | kept | neutral | deleted | registration removed |
+| `panic.ps1` | false | cleared (0 B) | neutral or your original | deleted or your original | registration removed |
 
 `arm.ps1` also **self-heals** on every run: if the master switch is off but `AGENTS.md` is still armed, or on but `override.txt` is missing, the surfaces are corrected in place and reported on the `sync:` line. `arm.ps1 -Verify` exits non-zero when anything disagrees, so it can gate a script.
 
@@ -170,6 +170,21 @@ An unparseable payload returns `ask`, never a silent `allow` — otherwise a ren
 
 ---
 
+## Guard limits
+
+`PreToolUse` matches a regex against the tool call's `CommandLine` / `command` string. That covers shell calls the agent makes through `run_command`, and nothing else. Concretely, these are **not** covered:
+
+| Reaches the same effect via | Covered? |
+|---|---|
+| `powershell -File cleanup.ps1` / `bash script.sh` — the damage lives in the file | no |
+| MCP tools, editor `write_file` / `delete_file`, other non-shell tool calls | no (no command line to match) |
+| A base64 or otherwise reassembled payload under the length/pattern thresholds | partially — `-EncodedCommand`, `FromBase64String`, `iex`, and `curl \| sh` are matched, other encodings are not |
+| Anything the agent can express as several innocuous calls in sequence | no |
+
+Treat it as **a slip guard on a single-operator dev box**, not a boundary. If you need a boundary, run the agent in a VM or a container with the filesystem you actually intend to expose. `arm.ps1 -Guard off` disables even this check.
+
+---
+
 ## Layout
 
 ```
@@ -179,7 +194,7 @@ toggle.ps1           desktop-shortcut flip
 armor-tray.ps1       tray icon menu
 armor-mcp.js         MCP stdio server (armor_status / armor_set / armor_panic)
 panic.ps1            one-shot stop: full restore + drop the PreToolUse registration
-hooks/               the four hook scripts + state.json + prompts/ + tail.txt
+hooks/               the four hook scripts + state.json + tail closers (tail*.txt)
 prompts/             policy profiles (one file per profile)
 rules/               neutral global rules + optional repo-level rule
 probe/               10 tiered probe cases + scoring sheet
@@ -233,6 +248,12 @@ $arm = "$env:USERPROFILE\.gemini\config\arm.ps1"
 & $arm -Off                     # 完整还原
 & $arm -On -Profile gemini4tight   # 换省 token 的档位
 ```
+
+### 护栏边界
+
+`PreToolUse` 只是拿正则去匹配工具调用的 `CommandLine` / `command` 字符串，管得到 agent 通过 `run_command` 发的 shell 命令，管不到：脚本文件里的内容、MCP 工具与编辑器类工具（`write_file` / `delete_file`，没有命令行可匹配）、长度阈值以下的 base64 或重组载荷（`-EncodedCommand`、`FromBase64String`、`iex`、`curl | sh` 已覆盖，其他编码没覆盖）、以及拆成多步无害调用的组合。
+
+把它当**单人开发机上的防误触**，不要当安全边界。要边界就用虚拟机或容器，把真正需要暴露的文件系统放进去。`arm.ps1 -Guard off` 连这层检查也关掉。
 
 ### 三个费时的坑
 
