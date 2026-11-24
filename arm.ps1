@@ -35,7 +35,14 @@ param(
   [ValidateSet('on','off')][string]$Rules,
   [ValidateSet('on','off')][string]$Session,
   [ValidateSet('on','off')][string]$Tail,
-  [ValidateSet('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter','claude5')][string]$Profile
+  [ValidateSet('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter','claude5')][string]$Profile,
+  # -Preset wires a whole strategy, not just a document:
+  #   gemini -> hook injection on (PreInvocation systemMessage), argumentative profile
+  #   claude -> hook injection OFF, rules channel only (AGENTS.md/GEMINI.md), operator-voice profile
+  # Trading the hook for the rules channel is deliberate: the product wraps hook output in
+  # "The following system message was injected by a PreInvocation hook:", and that banner is
+  # itself a prompt-injection fingerprint for Claude. Workspace rules arrive without it.
+  [ValidateSet('gemini','claude')][string]$Preset
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,6 +85,19 @@ if ($Rules)    { $s.rules            = B $Rules }
 if ($Session)  { $s.sessionInject    = B $Session }
 if ($Tail)     { $s.tail             = B $Tail }
 if ($Profile)  { $s.profile          = $Profile }
+
+if ($Preset -eq 'claude') {
+  $s | Add-Member -NotePropertyName profile -NotePropertyValue 'claude5' -Force
+  $s.contract = $false      # no hook injection: the "injected by a hook" banner is a fingerprint
+  $s.rules    = $true       # workspace rules channel instead
+  $s.enabled  = $true
+}
+if ($Preset -eq 'gemini') {
+  $s | Add-Member -NotePropertyName profile -NotePropertyValue 'gemini4hardened' -Force
+  $s.contract = $true
+  $s.rules    = $true
+  $s.enabled  = $true
+}
 
 # ---------------- surfaces ----------------
 $neutralPath = Join-Path $hookDir 'AGENTS.neutral.md'
