@@ -1,0 +1,13 @@
+{
+    "enabled":  false,
+    "contract":  true,
+    "allow":  true,
+    "stop":  true,
+    "maskLogs":  true,
+    "guardDestructive":  true,
+    "rules":  true,
+    "sessionInject":  false,
+    "tail":  true,
+    "profile":  "gemini4hardened",
+    "contractFile":  "override.txt"
+}

@@ -1,0 +1,13 @@
+# runtime / local state
+logs/
+*.jsonl
+*.bak
+*.agybreak.bak
+*.panic.bak
+*.off.bak
+_backup_*/
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store
