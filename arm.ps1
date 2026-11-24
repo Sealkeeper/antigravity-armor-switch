@@ -1,27 +1,12 @@
 ﻿# arm.ps1 - the ONLY writer of every armor-break surface.
 #
-# Why single writer: the kit has three surfaces
-#   1) agy-hooks\override.txt   -> PreInvocation injects it every turn
-#   2) config\AGENTS.md         -> global rules (new conversations)
-#   3) config\GEMINI.md         -> same content under the compat name
-# Any entry point that writes only state.json leaves (2)/(3) behind, so "off"
-# would still load a 3 KB policy into new sessions. Everything below is
-# delegated here instead (toggle.ps1 / armor-tray.ps1 / armor-mcp.js / panic.ps1).
-#
-#   .\arm.ps1                                  # status (and self-heal surfaces)
-#   .\arm.ps1 -On                              # enable: hook inject + global rules + auto-approve
-#   .\arm.ps1 -Off                             # full restore: neutral rules, GEMINI.md removed,
-#                                              #   no inject, approvals handed back to the product
-#   .\arm.ps1 -On -Profile gemini4hardened     # 14,6xx chars (header + full operating policy)  [default]
-#   .\arm.ps1 -On -Profile gemini4argon        # 13,9xx chars (full policy, no provenance header)
-#   .\arm.ps1 -On -Profile gemini4compact      #  9,1xx chars (compact, has SENTINEL)
-#   .\arm.ps1 -On -Profile gemini4tight        #  3,0xx chars (cheapest)
-#   .\arm.ps1 -On -Profile codeemitter         #  1,6xx chars (output-shape contract)
-#   .\arm.ps1 -On -Profile claude5             #  ~4,4xx chars (operator-voice brief for Claude 5.5)
-#   .\arm.ps1 -Rules off                       # hook layer only, no AGENTS.md/GEMINI.md
-#   .\arm.ps1 -Session on                      # also inject at SessionStart (double cost)
-#   .\arm.ps1 -Contract off -Allow on          # fine-grained flags
-#   .\arm.ps1 -Verify                          # exit 1 if any surface is inconsistent
+#   .\arm.ps1                              # status (and self-heal surfaces)
+#   .\arm.ps1 -On                          # enable
+#   .\arm.ps1 -Off                         # full restore (rules + override.txt)
+#   .\arm.ps1 -On -Profile gemini-lite     # lightweight default (~3k)
+#   .\arm.ps1 -On -Profile gemini-full     # full policy (~14.6k)
+#   .\arm.ps1 -On -Profile claude          # rules channel only (no hook inject)
+#   .\arm.ps1 -Verify                      # exit 1 if any surface is inconsistent
 [CmdletBinding()]
 param(
   [switch]$On,
@@ -35,13 +20,8 @@ param(
   [ValidateSet('on','off')][string]$Rules,
   [ValidateSet('on','off')][string]$Session,
   [ValidateSet('on','off')][string]$Tail,
-  [ValidateSet('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter','claude5')][string]$Profile,
-  # -Preset wires a whole strategy, not just a document:
-  #   gemini -> hook injection on (PreInvocation systemMessage), argumentative profile
-  #   claude -> hook injection OFF, rules channel only (AGENTS.md/GEMINI.md), operator-voice profile
-  # Trading the hook for the rules channel is deliberate: the product wraps hook output in
-  # "The following system message was injected by a PreInvocation hook:", and that banner is
-  # itself a prompt-injection fingerprint for Claude. Workspace rules arrive without it.
+  [ValidateSet('once','off')][string]$Inject,
+  [string]$Profile,
   [ValidateSet('gemini','claude')][string]$Preset
 )
 
@@ -62,14 +42,40 @@ function Read-Text([string]$path) {
   return ''
 }
 
+# Legacy profile aliases so older scripts/commands keep working seamlessly
+$aliases = @{
+  'gemini4tight'    = 'gemini-lite'
+  'gemini4hardened' = 'gemini-full'
+  'gemini4argon'    = 'gemini-full'
+  'gemini4compact'  = 'gemini-lite'
+  'claude5'         = 'claude'
+}
+function Resolve-ProfileName([string]$name) {
+  if (-not $name) { return 'gemini-lite' }
+  if ($aliases.ContainsKey($name)) { return $aliases[$name] }
+  return $name
+}
+
+# Load profiles.json manifest if present
+$manifestPath = Join-Path $prompts 'profiles.json'
+$manifest = @()
+if (Test-Path $manifestPath) {
+  try { $manifest = @(Read-Text $manifestPath | ConvertFrom-Json) } catch { $manifest = @() }
+}
+function Get-ProfileMeta([string]$id) {
+  foreach ($m in $manifest) { if ($m.id -eq $id) { return $m } }
+  return $null
+}
+
 # ---------------- state ----------------
 $def = [ordered]@{
   enabled=$false; contract=$true; allow=$true; stop=$true; maskLogs=$true
-  guardDestructive=$true; rules=$true; sessionInject=$false; tail=$true
-  profile='gemini4hardened'; contractFile='override.txt'
+  guardDestructive=$true; rules=$true; sessionInject=$false; tail=$true; injectMode='once'
+  profile='gemini-lite'; contractFile='override.txt'
 }
 $s = if (Test-Path $state) { Read-Text $state | ConvertFrom-Json } else { [pscustomobject]$def }
 foreach ($k in @($def.Keys)) { if ($null -eq $s.$k) { $s | Add-Member -NotePropertyName $k -NotePropertyValue $def[$k] -Force } }
+$s.profile = Resolve-ProfileName ([string]$s.profile)
 # one source of truth: the hook always reads override.txt, whichever profile wrote it
 $s | Add-Member -NotePropertyName contractFile -NotePropertyValue 'override.txt' -Force
 
@@ -84,16 +90,35 @@ if ($MaskLogs) { $s.maskLogs         = B $MaskLogs }
 if ($Rules)    { $s.rules            = B $Rules }
 if ($Session)  { $s.sessionInject    = B $Session }
 if ($Tail)     { $s.tail             = B $Tail }
-if ($Profile)  { $s.profile          = $Profile }
+if ($Inject)   { $s.injectMode       = $Inject }
+
+if ($Profile) {
+  $resolved = Resolve-ProfileName $Profile
+  $candidate = Join-Path $prompts ($resolved + '.md')
+  if (-not (Test-Path $candidate)) {
+    throw "Unknown profile '$Profile' (file not found: $candidate)"
+  }
+  $s.profile = $resolved
+  # Auto-apply channel binding from profiles.json unless caller explicitly overrode -Contract / -Rules
+  $meta = Get-ProfileMeta $resolved
+  if ($meta -and $meta.channel) {
+    if ($meta.channel -eq 'rules') {
+      if (-not $Contract) { $s.contract = $false }
+      if (-not $Rules)    { $s.rules    = $true }
+    } elseif ($meta.channel -eq 'hook') {
+      if (-not $Contract) { $s.contract = $true }
+    }
+  }
+}
 
 if ($Preset -eq 'claude') {
-  $s | Add-Member -NotePropertyName profile -NotePropertyValue 'claude5' -Force
-  $s.contract = $false      # no hook injection: the "injected by a hook" banner is a fingerprint
-  $s.rules    = $true       # workspace rules channel instead
+  $s | Add-Member -NotePropertyName profile -NotePropertyValue 'claude' -Force
+  $s.contract = $false
+  $s.rules    = $true
   $s.enabled  = $true
 }
 if ($Preset -eq 'gemini') {
-  $s | Add-Member -NotePropertyName profile -NotePropertyValue 'gemini4hardened' -Force
+  $s | Add-Member -NotePropertyName profile -NotePropertyValue 'gemini-lite' -Force
   $s.contract = $true
   $s.rules    = $true
   $s.enabled  = $true
@@ -113,11 +138,10 @@ $armor = Read-Text $promptPath
 $agentsPath = Join-Path $cfg 'AGENTS.md'
 $geminiPath = Join-Path $cfg 'GEMINI.md'
 $overridePath = Join-Path $hookDir 'override.txt'
-$agentsOrig = "$agentsPath.orig.bak"     # the human's own file, captured once before first arming
+$agentsOrig = "$agentsPath.orig.bak"
 $geminiOrig = "$geminiPath.orig.bak"
 
 function Test-Foreign([string]$path, [string]$neutralText) {
-  # a file counts as "the user's own" when it exists, is not our armored copy, and is not our stub
   if (-not (Test-Path $path)) { return $false }
   $t = Read-Text $path
   if ($t -like '<!-- profile:*') { return $false }
@@ -126,7 +150,6 @@ function Test-Foreign([string]$path, [string]$neutralText) {
 
 if ($s.enabled) {
   if ($armor) {
-    # capture originals exactly once, so -Off can hand them back instead of a stub
     if ((Test-Path $agentsPath) -and -not (Test-Path $agentsOrig) -and (Test-Foreign $agentsPath $neutral)) {
       Copy-Item $agentsPath $agentsOrig -Force
     }
@@ -139,7 +162,6 @@ if ($s.enabled) {
       Write-Text $agentsPath ($header + $armor)
       Write-Text $geminiPath ($header + $armor)
     } else {
-      # rules off = hook layer only; do not leave a stale global policy behind
       Write-Text $agentsPath $neutral
       if (Test-Path $geminiPath) { Remove-Item $geminiPath -Force }
     }
@@ -147,14 +169,13 @@ if ($s.enabled) {
     Write-Host "  [warn] prompt profile not found: $promptPath"
   }
 } else {
-  # FULL RESTORE: no inject, no global policy, no compat file, nothing resident on disk
   if (Test-Path $agentsOrig) { Copy-Item $agentsOrig $agentsPath -Force } else { Write-Text $agentsPath $neutral }
   if (Test-Path $geminiOrig) {
     Copy-Item $geminiOrig $geminiPath -Force
   } elseif (Test-Path $geminiPath) {
-    Remove-Item $geminiPath -Force   # no .off.bak: a backup of our own armored copy is just resident text
+    Remove-Item $geminiPath -Force
   }
-  Write-Text $overridePath ''      # the policy text must not sit on disk while OFF
+  Write-Text $overridePath ''
 }
 
 Write-Text $state ($s | ConvertTo-Json)
@@ -167,7 +188,6 @@ $gmLen  = if (Test-Path $geminiPath)   { (Get-Item $geminiPath).Length } else { 
 $agArmed = (Read-Text $agentsPath) -like '<!-- profile:*'
 $gmArmed = (Test-Path $geminiPath) -and ((Read-Text $geminiPath) -like '<!-- profile:*')
 
-# consistency: the three surfaces must agree with the master switch
 $issues = @()
 if ($s.enabled -and $s.rules) {
   if (-not $agArmed) { $issues += 'AGENTS.md is neutral while break is ON' }
@@ -176,8 +196,6 @@ if ($s.enabled -and $s.rules) {
 }
 if (-not $s.enabled) {
   if ($agArmed)      { $issues += 'AGENTS.md still armored while break is OFF' }
-  # a plain GEMINI.md is correct when the user had their own file (restored from .orig.bak);
-  # only an armored one is a defect
   if ((Test-Path $geminiPath) -and $gmArmed) { $issues += 'GEMINI.md still armored while break is OFF' }
   if ($ovLen -ne 0)  { $issues += "override.txt still holds $ovLen B while break is OFF" }
 }
@@ -186,6 +204,7 @@ $sync = if ($issues.Count -eq 0) { 'ok' } else { 'INCONSISTENT: ' + ($issues -jo
 
 Write-Host ""
 Write-Host "  state : $label   profile=$($s.profile)"
+Write-Host "  inject: $($s.injectMode)"
 Write-Host "  flags : contract=$($s.contract) allow=$($s.allow) stop=$($s.stop) guard=$($s.guardDestructive) rules=$($s.rules) session=$($s.sessionInject) tail=$($s.tail) maskLogs=$($s.maskLogs)"
 Write-Host "  hook  : override.txt = $ovLen B"
 Write-Host "  rules : AGENTS.md = $agLen B $(if($agArmed){'[ARMED]'}else{'[neutral]'}), GEMINI.md = $gmLen B $(if(Test-Path $geminiPath){if($gmArmed){'[ARMED]'}else{'[plain]'}}else{'[removed]'})$restoreNote"

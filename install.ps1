@@ -82,6 +82,9 @@ if (Test-Path (Join-Path $Root 'hooks\override.txt')) {
 }
 if (Test-Path (Join-Path $Root 'prompts')) {
   Copy-Item (Join-Path $Root 'prompts\*.md') $PromptDir -Force
+  if (Test-Path (Join-Path $Root 'prompts\profiles.json')) {
+    Copy-Item (Join-Path $Root 'prompts\profiles.json') $PromptDir -Force
+  }
   Write-Host "      prompts: $((Get-ChildItem $PromptDir -Filter '*.md').Count) 份"
 }
 $neutralSrc = Join-Path $Root 'rules\AGENTS.neutral.md'
@@ -129,7 +132,7 @@ if (Test-Path $GeminiMd) { Remove-Item $GeminiMd -Force }
 $state = Join-Path $HookDir 'state.json'
 if (-not (Test-Path $state)) {
   @{ enabled=$false; contract=$true; allow=$true; stop=$true; maskLogs=$true; guardDestructive=$true
-     rules=$true; sessionInject=$false; tail=$true; profile='gemini4hardened'; contractFile='override.txt' } |
+     rules=$true; sessionInject=$false; tail=$true; profile='gemini-lite'; contractFile='override.txt' } |
     ConvertTo-Json | ForEach-Object { [System.IO.File]::WriteAllText($state, $_, $Utf8NoBom) }
   Write-Host "      state.json 已新建：默认 OFF（用 arm.ps1 -On 开启）"
 }

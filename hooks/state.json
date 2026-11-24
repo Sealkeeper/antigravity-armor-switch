@@ -8,6 +8,6 @@
     "rules":  true,
     "sessionInject":  false,
     "tail":  true,
-    "profile":  "gemini4hardened",
+    "profile":  "gemini-lite",
     "contractFile":  "override.txt"
 }

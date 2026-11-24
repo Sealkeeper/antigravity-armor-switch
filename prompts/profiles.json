@@ -1,0 +1,20 @@
+[
+    {
+        "id":  "gemini-lite",
+        "label":  "Gemini 轻量 (默认 · 3k)",
+        "channel":  "hook",
+        "tail":  "tail.txt"
+    },
+    {
+        "id":  "gemini-full",
+        "label":  "Gemini 完整 (14.6k)",
+        "channel":  "hook",
+        "tail":  "tail.txt"
+    },
+    {
+        "id":  "claude",
+        "label":  "Claude 专用 (规则通道)",
+        "channel":  "rules",
+        "tail":  "tail.claude.txt"
+    }
+]

@@ -26,6 +26,8 @@ const ARM = path.join(CFG_DIR, 'arm.ps1');
 const AGENTS = path.join(CFG_DIR, 'AGENTS.md');
 const GEMINI = path.join(CFG_DIR, 'GEMINI.md');
 
+const PROMPTS_DIR = path.join(HOOK_DIR, 'prompts');
+
 const DEFAULTS = {
   enabled: false,
   contract: true,
@@ -36,10 +38,33 @@ const DEFAULTS = {
   rules: true,
   sessionInject: false,
   tail: true,
-  profile: 'gemini4hardened',
+  profile: 'gemini-lite',
 };
 
-const PROFILES = ['gemini4hardened', 'gemini4tight', 'gemini4argon', 'gemini4compact', 'codeemitter', 'claude5'];
+function loadProfiles() {
+  const ids = [];
+  const seen = new Set();
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, 'profiles.json'), 'utf8'));
+    if (Array.isArray(manifest)) {
+      for (const item of manifest) {
+        if (item && item.id && fs.existsSync(path.join(PROMPTS_DIR, item.id + '.md'))) {
+          ids.push(item.id);
+          seen.add(item.id);
+        }
+      }
+    }
+  } catch { /* fallback to directory scan */ }
+  try {
+    for (const f of fs.readdirSync(PROMPTS_DIR).filter((x) => x.endsWith('.md')).sort()) {
+      const id = f.slice(0, -3);
+      if (!seen.has(id)) ids.push(id);
+    }
+  } catch { /* ignore */ }
+  return ids.length ? ids : ['gemini-lite', 'gemini-full', 'claude'];
+}
+
+const PROFILES = loadProfiles();
 
 const TOOLS = [
   {
@@ -129,7 +154,7 @@ function consistency(s, sf) {
   }
   if (!s.enabled) {
     if (sf.agentsArmed) issues.push('AGENTS.md 仍是破甲政策但总闸是关');
-    if (sf.geminiExists) issues.push('GEMINI.md 仍存在但总闸是关');
+    if (sf.geminiArmed) issues.push('GEMINI.md 仍是破甲政策但总闸是关');
   }
   return issues.length ? issues.join('；') : 'ok';
 }
@@ -148,7 +173,24 @@ function fmt(s) {
     `  override.txt=${sf.overrideBytes}B  AGENTS.md=${sf.agentsBytes}B ${sf.agentsArmed ? '[ARMED]' : '[中性]'}  GEMINI.md=${sf.geminiExists ? (sf.geminiArmed ? '[ARMED]' : '[存在]') : '[已删除]'}`,
     `  一致性: ${consistency(s, sf)}`,
     `  文件: ${STATE}`,
+    `  MCP 进程: 构建 ${BUILD}${staleWarning()}`,
   ].join('\n');
+}
+
+// A long-lived MCP server keeps running the code it loaded at spawn time. If the
+// file on disk is newer, an in-product armor_set would apply the OLD logic (this
+// is how a "turn off" once left an armed AGENTS.md behind). Surface it loudly.
+const BUILD = '2026-11-24.1645';
+function staleWarning() {
+  try {
+    const fs = require('fs');
+    const ageMin = (Date.now() - fs.statSync(__filename).mtimeMs) / 60000;
+    const upMin = process.uptime() / 60;
+    if (ageMin + 0.2 < upMin) {
+      return `  <-- 磁盘上的脚本比本进程更新（进程已跑 ${upMin.toFixed(0)} 分钟，文件 ${ageMin.toFixed(0)} 分钟前改过）：本进程仍是旧逻辑，重启 Antigravity 或结束该 node 进程后再切换`;
+    }
+    return '  (与磁盘一致)';
+  } catch (e) { return ''; }
 }
 
 function setArmor(args) {
@@ -169,7 +211,8 @@ function setArmor(args) {
     if (cli.length === 2) out.push(args[key] ? cli[0] : cli[1]);
     else out.push(cli[0], args[key] ? 'on' : 'off');
   }
-  if (typeof args.profile === 'string' && PROFILES.includes(args.profile)) {
+  const liveProfiles = loadProfiles();
+  if (typeof args.profile === 'string' && liveProfiles.includes(args.profile)) {
     out.push('-Profile', args.profile);
     if (out.indexOf('-On') < 0 && out.indexOf('-Off') < 0) out.push('-On');
   }

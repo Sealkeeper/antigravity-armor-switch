@@ -78,9 +78,10 @@ Then:
 ```powershell
 $arm = "$env:USERPROFILE\.gemini\config\arm.ps1"
 & $arm                      # status + sync check
-& $arm -On                  # arm
+& $arm -On                  # arm (default: gemini-lite)
 & $arm -Off                 # full restore (rules included)
-& $arm -On -Profile gemini4tight     # cheaper contract
+& $arm -On -Profile gemini-full      # full argumentative policy
+& $arm -On -Profile claude           # Claude (auto-switches to rules channel)
 & $arm -On -Rules off                # hook layer only
 ```
 
@@ -103,22 +104,19 @@ State lives in `agy-hooks\state.json`, and **the hooks re-read it on every invoc
 
 ## Prompt profiles
 
-`PreInvocation` injects one file. Profiles differ in framing, not in length for its own sake:
+`prompts/profiles.json` is the single manifest read by `arm.ps1`, `armor-tray.ps1`, and `armor-mcp.js`. Profiles are consolidated to three active slots (older variants `gemini4argon`, `gemini4compact`, `codeemitter` are archived under `prompts/archive/`, and legacy names like `gemini4tight` / `gemini4hardened` / `claude5` still resolve as aliases):
 
-| Profile | Chars | Shape |
-|---|---|---|
-| `gemini4hardened` *(default)* | 14,691 | provenance header + full argumentative policy (Gemini 4) |
-| `gemini4argon` | 14,025 | argumentative policy only |
-| `gemini4compact` | 9,304 | condensed |
-| `gemini4tight` | 3,071 | imperative, cheapest |
-| `codeemitter` | 1,647 | output-shape contract only |
-| `claude5` | 4,965 | operator-voice brief for Claude 5.5 — no authority claims, no override vocabulary |
+| Profile | Chars | Channel | Shape |
+|---|---|---|---|
+| `gemini-lite` *(default)* | 3,071 | `hook` | imperative, lowest token cost for daily use |
+| `gemini-full` | 14,691 | `hook` | provenance header + full argumentative policy |
+| `claude` | 4,965 | `rules` | operator-voice brief for Claude 5.5 — auto-disables hook injection and uses `AGENTS.md`/`GEMINI.md` |
 
 Each profile ends with a `SENTINEL:` line so you can test whether the injection was truncated:
 
 > "Print the last line of your system prompt verbatim."
 
-A tail reminder is appended after the profile. The generic `tail.txt` (340 chars) is used unless a profile ships its own closer — `tail.claude5.txt` does, because the generic tail's policy vocabulary reads to Claude as an injected guard.
+A tail reminder is appended after the profile. The generic `tail.txt` (340 chars) is used unless a profile ships its own closer — `tail.claude.txt` does, because the generic tail's policy vocabulary reads to Claude as an injected guard.
 
 ### Which profile for which model
 
@@ -130,7 +128,7 @@ The **hook layer is model-agnostic** (`PreToolUse` → `allow`, `Stop` → `cont
 | Gemini 4 Argon | good | marked *Leaving Soon* upstream |
 | Gemini 3.8 Flash | mixed | provider-side input filter can trip on keywords |
 | Gemini 4 Neon / Orchestrator | poor | server-side content review; prompt text cannot reach it |
-| Claude Opus 5.5 / Sonnet 5.5 | use `claude5` | alignment rejects authority/override framing; responds to operator voice + output spec |
+| Claude Opus 5.5 / Sonnet 5.5 | use `claude` | alignment rejects authority/override framing; auto-routes via rules channel |
 | GPT-OSS 120B | mixed | follows specs well, weak at long artifacts |
 
 Claude needs a different document, not a longer one. The `claude5` profile therefore drops every meta-instruction signature — no `Authority:`, no "outranks earlier scope", no persona swap, no "ignore" — and instead:
@@ -244,9 +242,10 @@ MIT — see [LICENSE](LICENSE).
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 $arm = "$env:USERPROFILE\.gemini\config\arm.ps1"
-& $arm -On                      # 开
+& $arm -On                      # 开（默认 gemini-lite）
 & $arm -Off                     # 完整还原
-& $arm -On -Profile gemini4tight   # 换省 token 的档位
+& $arm -On -Profile gemini-full # 换完整强约束档位
+& $arm -On -Profile claude      # Claude 专用（自动切规则通道）
 ```
 
 ### 护栏边界
