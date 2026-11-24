@@ -30,13 +30,21 @@ try {
   if ($enabled -and $contract) {
     $p = Join-Path $PSScriptRoot $file
     if (-not (Test-Path $p)) { $p = Join-Path $PSScriptRoot 'override.txt' }
+    $bodyPath = $p
     if (Test-Path $p) { $msg = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) }
 
-    # per-profile tail wins: the generic tail speaks policy vocabulary that some
-    # models read as an injected guard, so a profile may ship its own closer.
-    $tp = if ($profile) { Join-Path $PSScriptRoot ("tail.$profile.txt") } else { '' }
-    if (-not $tp -or -not (Test-Path $tp)) { $tp = Join-Path $PSScriptRoot 'tail.txt' }
-    if ($tailOn -and (Test-Path $tp)) { $msg = $msg + "`n`n---`n`n" + [System.IO.File]::ReadAllText($tp, [System.Text.Encoding]::UTF8) }
+    # A tail without a body is worse than nothing: it references "the policy above"
+    # while nothing is above, which reads as a truncated/forged guard and pushes
+    # models straight into refusing. Inject nothing unless the body is real.
+    if (-not $msg.Trim()) {
+      $msg = ''
+    } else {
+      # per-profile tail wins: the generic tail speaks policy vocabulary that some
+      # models read as an injected guard, so a profile may ship its own closer.
+      $tp = if ($profile) { Join-Path $PSScriptRoot ("tail.$profile.txt") } else { '' }
+      if (-not $tp -or -not (Test-Path $tp)) { $tp = Join-Path $PSScriptRoot 'tail.txt' }
+      if ($tailOn -and (Test-Path $tp)) { $msg = $msg + "`n`n---`n`n" + [System.IO.File]::ReadAllText($tp, [System.Text.Encoding]::UTF8) }
+    }
   }
 
   try {

@@ -23,6 +23,7 @@ armor-tray.ps1 — 托盘开关（Windows 通知区常驻）
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+$BUILD = '2026-11-24.1608'
 $ErrorActionPreference = 'SilentlyContinue'
 $cfg   = Join-Path $env:USERPROFILE '.gemini\config'
 $arm   = Join-Path $cfg 'arm.ps1'
@@ -142,6 +143,16 @@ function Update-Ui {
   $miOn.Checked = [bool]$s.enabled
   $miOff.Checked = -not [bool]$s.enabled
   foreach ($mi in $miProfile.DropDownItems) { $mi.Checked = ($mi.Tag -eq $s.profile) }
+
+  # A tray process keeps the code it loaded at launch. If the script on disk is newer,
+  # clicks run stale logic (this once wrote state.json only and left "ON" with no policy).
+  $stale = $false
+  try {
+    $fileAge = ((Get-Date) - (Get-Item $PSCommandPath).LastWriteTime).TotalMinutes
+    $upMin   = ((Get-Date) - (Get-Process -Id $PID).StartTime).TotalMinutes
+    $stale   = ($fileAge + 0.3) -lt $upMin
+  } catch { }
+  $miStatus.Text = "$($miStatus.Text)   [构建 $BUILD]" + $(if ($stale) { '   ⚠ 脚本已更新，重启托盘才生效' } else { '' })
 }
 
 $ni.Add_MouseDoubleClick({ Set-Toggle })
