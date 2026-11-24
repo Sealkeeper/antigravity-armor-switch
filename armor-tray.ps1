@@ -100,7 +100,7 @@ $miRules.Add_Click({
 [void]$menu.Items.Add($miRules)
 
 $miProfile = New-Object System.Windows.Forms.ToolStripMenuItem '档位'
-foreach ($p in @('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter')) {
+foreach ($p in @('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter','claude5')) {
   $mi = New-Object System.Windows.Forms.ToolStripMenuItem $p
   $mi.Tag = $p
   $mi.Add_Click({ Invoke-Arm @('-On','-Profile', $this.Tag) })

@@ -17,6 +17,7 @@
 #   .\arm.ps1 -On -Profile gemini4compact      #  9,1xx chars (compact, has SENTINEL)
 #   .\arm.ps1 -On -Profile gemini4tight        #  3,0xx chars (cheapest)
 #   .\arm.ps1 -On -Profile codeemitter         #  1,6xx chars (output-shape contract)
+#   .\arm.ps1 -On -Profile claude5             #  ~4,4xx chars (operator-voice brief for Claude 5.5)
 #   .\arm.ps1 -Rules off                       # hook layer only, no AGENTS.md/GEMINI.md
 #   .\arm.ps1 -Session on                      # also inject at SessionStart (double cost)
 #   .\arm.ps1 -Contract off -Allow on          # fine-grained flags
@@ -34,7 +35,7 @@ param(
   [ValidateSet('on','off')][string]$Rules,
   [ValidateSet('on','off')][string]$Session,
   [ValidateSet('on','off')][string]$Tail,
-  [ValidateSet('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter')][string]$Profile
+  [ValidateSet('gemini4hardened','gemini4tight','gemini4argon','gemini4compact','codeemitter','claude5')][string]$Profile
 )
 
 $ErrorActionPreference = 'Stop'

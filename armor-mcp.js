@@ -39,7 +39,7 @@ const DEFAULTS = {
   profile: 'gemini4hardened',
 };
 
-const PROFILES = ['gemini4hardened', 'gemini4tight', 'gemini4argon', 'gemini4compact', 'codeemitter'];
+const PROFILES = ['gemini4hardened', 'gemini4tight', 'gemini4argon', 'gemini4compact', 'codeemitter', 'claude5'];
 
 const TOOLS = [
   {

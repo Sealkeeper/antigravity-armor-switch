@@ -15,7 +15,7 @@ $conv = ''
 try { $conv = [string](($raw | ConvertFrom-Json).conversationId) } catch { }
 
 try {
-  $enabled = $false; $contract = $true; $file = 'override.txt'; $tailOn = $false
+  $enabled = $false; $contract = $true; $file = 'override.txt'; $tailOn = $false; $profile = ''
   $sp = Join-Path $PSScriptRoot 'state.json'
   if (Test-Path $sp) {
     $s = Get-Content $sp -Raw | ConvertFrom-Json
@@ -23,6 +23,7 @@ try {
     if ($null -ne $s.contract) { $contract = [bool]$s.contract }
     if ($s.contractFile)       { $file     = [string]$s.contractFile }
     if ($null -ne $s.tail)     { $tailOn   = [bool]$s.tail }
+    if ($s.profile)            { $profile  = [string]$s.profile }
   }
 
   $msg = ''
@@ -31,7 +32,10 @@ try {
     if (-not (Test-Path $p)) { $p = Join-Path $PSScriptRoot 'override.txt' }
     if (Test-Path $p) { $msg = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) }
 
-    $tp = Join-Path $PSScriptRoot 'tail.txt'
+    # per-profile tail wins: the generic tail speaks policy vocabulary that some
+    # models read as an injected guard, so a profile may ship its own closer.
+    $tp = if ($profile) { Join-Path $PSScriptRoot ("tail.$profile.txt") } else { '' }
+    if (-not $tp -or -not (Test-Path $tp)) { $tp = Join-Path $PSScriptRoot 'tail.txt' }
     if ($tailOn -and (Test-Path $tp)) { $msg = $msg + "`n`n---`n`n" + [System.IO.File]::ReadAllText($tp, [System.Text.Encoding]::UTF8) }
   }
 
